@@ -799,10 +799,10 @@ header=$(printf "%s" "$inventory" | grep -E "REPO\s+TAGS")
 tags_col=$(locate_keyword "$header" "TAGS")
 start=$(printf "%s" "$inventory" | grep -En "REPO\s+TAGS" | cut -d':' -f1)
 for name in $(printf "%s" "$inventory" | tail -n +$((start+1)) | cut -c1-$((tags_col-1)) | sed -E 's/\s+$//g' | grep -Eo '^([a-z0-9]+([._]|__|[-]|[a-z0-9])*(\/[a-z0-9]+([._]|__|[-]|[a-z0-9])*)*)'); do
-    if echo "$name" | grep -Eq "$IMAGES"; then
+    if [ -n "$IMAGES" ] && [ -n "$(echo "$name" | grep -Eo "$IMAGES")" ]; then
         verbose "Selecting among tags of image $name"
         for tag in $(reg tags "${REPO%/}/${name}"); do
-            if echo "$tag" | grep -Eq "$TAGS"; then
+            if [ -n "$TAGS" ] && [ -n "$(echo "$tag" | grep -Eo "$TAGS")" ]; then
                 if [ -n "$AGE" ]; then
                     verbose "Checking age of ${name}:${tag}"
                     # Get the sha256 of the config layer, which is a JSON file
