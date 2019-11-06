@@ -243,12 +243,12 @@ for name in $(printf "%s" "$inventory" | tail -n +$((start+1)) | cut -c1-$((tags
                     # Get the sha256 of the config layer, which is a JSON file
                     config=$(reg manifest "${REPO%/}/${name}:${tag}" | yush_json | grep '/config/digest' | awk '{print $3}')
 					if [ -z "$config" ]; then
-						warn "Cannot find config layer for ${REPO%/}/${name}:${tag}!"
+						yush_warn "Cannot find config layer for ${REPO%/}/${name}:${tag}!"
 					else
 						# Extract the layer, parse its JSON and look for the image creation date, in ISO8601 format
 						creation=$(reg layer "${REPO%/}/${name}:${tag}@${config}" | yush_json | grep -E '^/created\s+' | awk '{print $3}')
 						if [ -z "$creation" ]; then
-							warn "Cannot find creation date for ${REPO%/}/${name}:${tag}!"
+							yush_warn "Cannot find creation date for ${REPO%/}/${name}:${tag}!"
 						else
 							howold=$((now-$(yush_iso8601 "$creation")))
 							if [ "$howold" -lt "$AGE" ]; then
