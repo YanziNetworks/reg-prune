@@ -74,20 +74,28 @@ such as `--imagess`, `--tags` or `--age`.
 
 ### `-i`, `--images` or `--image`
 
-A regular expression to match against the names of the images present at the remote repository and to select them for removal. This defaults to an empty string so the script will not remove any image by mistake.
+A regular expression to match against the names of the images present at the
+remote repository and to select them for removal. This defaults to an empty
+string so the script will not remove any image by mistake.
 
 ### `-t`, `--tags` or `--tag`
 
-A regular expression to match against the tags of the images selected by the `--images` option.  Only images which tag match this regular expression at the remote repository will be selected for removal. This defaults to `.*`, thus will select all tags for the selected images.
+A regular expression to match against the tags of the images selected by the
+`--images` option.  Only images which tag match this regular expression at the
+remote repository will be selected for removal. This defaults to `.*`, thus will
+select all tags for the selected images.
 
 ### `-g` or `--age`
 
 Age of the selected images to consider for removal (default: `3mo`). The age can
-be expressed in human-readable format, e.g. `6m` (for 6 months), `3 days`, etc. or as an integer number of seconds. An empty age is understood as all images under the relevant tags, however old they are.
+be expressed in human-readable format, e.g. `6m` (for 6 months), `3 days`, etc.
+or as an integer number of seconds. An empty age is understood as all images
+under the relevant tags, however old they are.
 
 ### `-r`, `--registry` or `--reg`
 
-DNS of the remote registry to operate on. This has no default and needs to be provided for the script to run.
+DNS of the remote registry to operate on. This has no default and needs to be
+provided for the script to run.
 
 ### `--auth-url`
 
@@ -104,6 +112,20 @@ directory.
 
 Path to a file containing authorisation details in colon-separated form (see
 `--auth` option). This option plays nicely with Docker secrets.
+
+### `--reg-bin` or `--regbin`
+
+Command to use for the [reg] utility. This can be handy to provide the path to a
+specific location, or a different Docker command than the default one. This
+option is empty by default, which leads to the documented behaviour of looking
+for [reg] in the path and defaulting to temporary containers if an executable
+could not be found.
+
+### `--reg-opts` or `--regopts`
+
+List of additional options to blindly pass to each invocation of [reg]. This
+option can be used to provide access to features that are not interfaced through
+the regular set of options recognised by the script.
 
 ### `--non-interactive`, `--no-colour` or `--no-color`
 

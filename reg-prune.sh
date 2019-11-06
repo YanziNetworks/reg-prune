@@ -13,6 +13,7 @@ REPO=
 AUTH=
 AUTH_URL=
 REG=
+REG_OPTS=
 DOCKER_REG=jess/reg:v0.16.0;       # Note: dev. in flux, pick your version carefully
 if [ -t 1 ]; then
     INTERACTIVE=1
@@ -54,6 +55,7 @@ Usage:
 	--reg(-)bin			Full path to reg binary or alternative command (default:
 						empty, meaning binary in path or Docker container when not
 						found)
+	--reg(-)opts		List of options to blindly pass to reg tool
 
   Any command after the (optional) final double-dash will be run once cleanup has
   finished.
@@ -123,6 +125,11 @@ while [ $# -gt 0 ]; do
         REG="$2"; shift 2;;
     --reg-bin=* | --regbin=*)
         REG="${1#*=}"; shift 1;;
+
+    --reg-opts | --regopts)
+        REG_OPTS="$2"; shift 2;;
+    --reg-opts=* | --regopts=*)
+        REG_OPTS="${1#*=}"; shift 1;;
 
     --non-interactive | --no-colour | --no-color)
         INTERACTIVE=0; shift 1;;
@@ -739,6 +746,7 @@ reg() {
 		runreg="$runreg --username $USERNAME"
 		[ -n "$PASSWORD" ] && runreg="$runreg --password $PASSWORD"
 	fi
+	[ -n "$REG_OPTS" ] && runreg="$runreg $REG_OPTS"
 	$runreg "$@"
 }
 
