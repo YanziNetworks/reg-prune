@@ -1,0 +1,3 @@
+[submodule "yu.sh"]
+	path = yu.sh
+	url = https://github.com/YanziNetworks/yu.sh.git

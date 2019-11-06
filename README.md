@@ -57,10 +57,11 @@ Many options exist with various spelling to ease on your memory.
 
 ### `-v` or `--verbose`
 
-This will increase the verbosity of the script, output will be sent to the
-`stderr` and lines will contain the name of the script, together with the
-timestamp. When used in interactive mode, the script will automatically colour
-the log, unless directed not to.
+This will set the verbosity of the script, which defaults to `info`. Output will
+be sent to the `stderr` and lines will contain the name of the script, together
+with the timestamp. Recognised levels are `debug`, `info`, `notice`, `warn` and
+`error`. When used in interactive mode, the script will automatically colour the
+log, unless directed not to.
 
 ### `-h` or `--help`
 
@@ -149,3 +150,9 @@ credentials to this script and underlying [reg] tool.
 ```shell
 docker run -it --rm -v ${HOME}/.docker:/root/.docker:ro yanzinetworks/reg-prune --help
 ```
+
+## Implementation
+
+This script is the first script that makes use of the [yu.sh] library.
+
+  [yu.sh]: https://github.com/YanziNetworks/yu.sh

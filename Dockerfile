@@ -8,5 +8,7 @@ LABEL org.label-schema.description="Prune images from a Docker registry"
 LABEL org.label-schema.url="https://github.com/YanziNetworks/reg-prune"
 LABEL org.label-schema.docker.cmd="docker run -it --rm -v $HOME/.docker:/root/.docker:ro yanzinetworks/reg-prune --help"
 
+ADD yu.sh/ /usr/local/lib/yu.sh/
 ADD reg-prune.sh /usr/local/bin/reg-prune.sh
+
 ENTRYPOINT [ "/usr/local/bin/reg-prune.sh" ]
