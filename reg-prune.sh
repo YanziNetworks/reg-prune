@@ -252,7 +252,7 @@ for name in $(printf "%s" "$inventory" | tail -n +$((start+1)) | cut -c1-$((tags
 						else
 							howold=$((now-$(yush_iso8601 "$creation")))
 							if [ "$howold" -lt "$AGE" ]; then
-								yush_info "Keeping $(yush_green "${name}:${tag}"), $(human "$howold")old"
+								yush_info "Keeping $(yush_green "${name}:${tag}"), $(yush_human_period "$howold")old"
 							else
 								rm_image "${name}:${tag}" "$howold"
 							fi
