@@ -211,7 +211,7 @@ fi
 if [ -z "$REG" ]; then
 	if [ -x "$(command -v reg)" ]; then
 		REG=$(command -v reg)
-	elif [ -x "$(which reg)" ]; then
+	elif [ -x "$(which reg 2>/dev/null)" ]; then
 		REG=$(which reg)
 	else
 		yush_debug "Will run reg as a Docker container using $DOCKER_REG"
