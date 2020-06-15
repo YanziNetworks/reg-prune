@@ -1,12 +1,15 @@
 FROM jess/reg:v0.16.0
 
 LABEL maintainer="efrecon@gmail.com"
-LABEL org.label-schema.build-date=${BUILD_DATE}
-LABEL org.label-schema.schema-version="1.0"
-LABEL org.label-schema.name="yanzinetworks/reg-prune"
-LABEL org.label-schema.description="Prune images from a Docker registry"
-LABEL org.label-schema.url="https://github.com/YanziNetworks/reg-prune"
-LABEL org.label-schema.docker.cmd="docker run -it --rm -v $HOME/.docker:/root/.docker:ro yanzinetworks/reg-prune --help"
+# OCI Annotation: https://github.com/opencontainers/image-spec/blob/master/annotations.md
+LABEL org.opencontainers.image.title="yanzinetworks/reg-prune"
+LABEL org.opencontainers.image.description="Prune images from a Docker registry"
+LABEL org.opencontainers.image.authors="Emmanuel Frecon <efrecon+github@gmail.com>"
+LABEL org.opencontainers.image.url="https://github.com/YanziNetworks/reg-prune"
+LABEL org.opencontainers.image.created=${BUILD_DATE}
+LABEL org.opencontainers.image.version="1.0"
+LABEL org.opencontainers.image.vendor="Yanzi Networks AB"
+LABEL org.opencontainers.image.licenses="MIT"
 
 ADD yu.sh/ /usr/local/lib/yu.sh/
 ADD reg-prune.sh /usr/local/bin/reg-prune.sh
