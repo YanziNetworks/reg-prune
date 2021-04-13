@@ -17,6 +17,7 @@ REPO=
 AUTH=
 AUTH_URL=
 REG=
+JQ=jq
 REG_OPTS=
 DOCKER_REG=jess/reg:v0.16.0;       # Note: dev. in flux, pick your version carefully
 
@@ -79,7 +80,6 @@ USAGE
     exit "$exitcode"
 }
 
-
 while [ $# -gt 0 ]; do
     case "$1" in
     -v | --verbose | --verbosity)
@@ -134,6 +134,11 @@ while [ $# -gt 0 ]; do
         REG_OPTS="$2"; shift 2;;
     --reg-opts=* | --regopts=*)
         REG_OPTS="${1#*=}"; shift 1;;
+
+    --jq)
+        JQ="$2"; shift 2;;
+    --jq=*)
+        JQ="${1#*=}"; shift 1;;
 
     --non-interactive | --no-colour | --no-color)
         YUSH_LOG_COLOUR=0; shift 1;;
@@ -211,12 +216,35 @@ fi
 if [ -z "$REG" ]; then
 	if [ -x "$(command -v reg)" ]; then
 		REG=$(command -v reg)
+        yush_debug "Using reg accessible as $reg for registry operations"
 	elif [ -x "$(which reg 2>/dev/null)" ]; then
 		REG=$(which reg)
+        yush_debug "Using reg accessible as $reg for registry operations"
 	else
 		yush_debug "Will run reg as a Docker container using $DOCKER_REG"
 		REG="docker run -i --rm -v $HOME/.docker:/root/.docker:ro $DOCKER_REG"
 	fi
+fi
+
+# When told to use jq, make sure we can access it or revert to setting JQ to an
+# empty string, which will use the internal JSON parser instead.
+if [ -n "$JQ" ]; then
+	if [ -x "$(command -v "$JQ")" ]; then
+		JQ=$(command -v "$JQ")
+	elif [ -x "$(which "$JQ" 2>/dev/null)" ]; then
+		JQ=$(which "$JQ")
+    else
+        yush_notice "Cannot find jq at $JQ, reverting to internal JSON parser"
+        JQ=
+    fi
+fi
+
+# Output some info over JSON parsing and jq as decision is automated (and might
+# be wrong?)
+if [ -z "$JQ" ]; then
+    yush_debug "Using slow, shell-based and imprecise JSON parser"
+else
+    yush_debug "Using jq accessible as $JQ for JSON parsing"
 fi
 
 # Initialise globals used below or in called functions
@@ -241,12 +269,20 @@ for name in $(printf "%s" "$inventory" | tail -n +$((start+1)) | cut -c1-$((tags
                 if [ -n "$AGE" ]; then
                     yush_debug "Checking age of ${name}:${tag}"
                     # Get the sha256 of the config layer, which is a JSON file
-                    config=$(reg manifest "${REPO%/}/${name}:${tag}" | yush_json | grep '/config/digest' | awk '{print $3}')
+                    if [ -n "$JQ" ]; then
+                        config=$(reg manifest "${REPO%/}/${name}:${tag}" | "$JQ" -crM .config.digest)
+                    else
+                        config=$(reg manifest "${REPO%/}/${name}:${tag}" | yush_json | grep '/config/digest' | awk '{print $3}')
+                    fi
 					if [ -z "$config" ]; then
 						yush_warn "Cannot find config layer for ${REPO%/}/${name}:${tag}!"
 					else
 						# Extract the layer, parse its JSON and look for the image creation date, in ISO8601 format
-						creation=$(reg layer "${REPO%/}/${name}:${tag}@${config}" | yush_json | grep -E '^/created\s+' | awk '{print $3}')
+                        if [ -n "$JQ" ]; then
+    						creation=$(reg layer "${REPO%/}/${name}:${tag}@${config}" | "$JQ" -crM .created)
+                        else
+    						creation=$(reg layer "${REPO%/}/${name}:${tag}@${config}" | yush_json | grep -E '^/created\s+' | awk '{print $3}')
+                        fi
 						if [ -z "$creation" ]; then
 							yush_warn "Cannot find creation date for ${REPO%/}/${name}:${tag}!"
 						else

@@ -10,13 +10,15 @@ combination of the following filters:
 
 This is a script written in POSIX shell on top of two fantastic giants: [reg] is
 used to operate on the remote Docker registry, and its answers are parsed
-through a POSIX shell [JSON parser][JSON]. The script prefers running [reg]
-directly from its installed PATH, but can revert to a Docker container in case
-the binary cannot be found. The script also exists as a Docker
-[image][reg-prune] to be run from a container.
+through a POSIX shell [JSON parser][JSON] or [jq]. The script prefers running
+[reg] directly from its installed PATH, but can revert to a Docker container in
+case the binary cannot be found. A locally installed [jq] will be automatically
+picked up in most cases. The script also exists as a Docker [image][reg-prune]
+to be run from a container.
 
   [reg]: https://github.com/genuinetools/reg
   [JSON]: https://github.com/rcrowley/json.sh
+  [jq]: https://stedolan.github.io/jq/
   [reg-prune]: https://hub.docker.com/r/yanzinetworks/prune
 
 **NOTE** This script hasn't had too much testing, your mileage may vary. In all
@@ -127,6 +129,13 @@ could not be found.
 List of additional options to blindly pass to each invocation of [reg]. This
 option can be used to provide access to features that are not interfaced through
 the regular set of options recognised by the script.
+
+### `--jq`
+
+Path (or name of binary) where to find [jq]. The default is set to `jq`, which
+will look for `jq` in the path. When this option is set to an empty string, or
+when [jq] binary pointed at by this option cannot be found, the internal JSON
+[parser][JSON] will be used instead.
 
 ### `--non-interactive`, `--no-colour` or `--no-color`
 

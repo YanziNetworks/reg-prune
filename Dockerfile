@@ -11,6 +11,9 @@ LABEL org.opencontainers.image.version="1.0"
 LABEL org.opencontainers.image.vendor="Yanzi Networks AB"
 LABEL org.opencontainers.image.licenses="MIT"
 
+# Add jq for quicker JSON parsing
+RUN apk add --no-cache jq
+
 ADD yu.sh/ /usr/local/lib/yu.sh/
 ADD reg-prune.sh /usr/local/bin/reg-prune.sh
 
