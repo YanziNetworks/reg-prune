@@ -1,26 +1,65 @@
-#!/bin/sh
+#!/usr/bin/env sh
 
 # Pick relevant yu.sh modules at once.
 ROOT_DIR=$( cd -P -- "$(dirname -- "$(command -v -- "$0")")" && pwd -P )
 [ -d "$ROOT_DIR/yu.sh" ] && YUSH_DIR="$ROOT_DIR/yu.sh"
 [ -z "$YUSH_DIR" ] && [ -d "$ROOT_DIR/../lib/yu.sh" ] && YUSH_DIR="$ROOT_DIR/../lib/yu.sh"
 [ -z "$YUSH_DIR" ] && echo "Cannot find yu.sh root!" >/dev/stderr && exit 1
+# shellcheck disable=SC1091
 . "$YUSH_DIR/log.sh"
+# shellcheck disable=SC1091
 . "$YUSH_DIR/date.sh"
+# shellcheck disable=SC1091
 . "$YUSH_DIR/json.sh"
 
-DRYRUN=0
-IMAGES=
-TAGS=".*"
-AGE=3mo
-REPO=
-AUTH=
-AUTH_URL=
-REG=
-JQ=jq
-REG_OPTS=
-DOCKER_REG=jess/reg:v0.16.0;       # Note: dev. in flux, pick your version carefully
+# Set this to 1 to only show what would be done without actually removing images
+# from the remote registry.
+REGPRUNE_DRYRUN=${REGPRUNE_DRYRUN:-0}
 
+# This is a regular expression that image names should match to be considered
+# for deletion. The default is an empty string, meaning no image will match and
+# this utility will do no harm!
+REGPRUNE_IMAGES=${REGPRUNE_IMAGES:-}
+
+# This is a regular expression that tag names should match to be considered
+# for deletion. The default is to match all possible tags!
+REGPRUNE_TAGS=${REGPRUNE_TAGS:-".*"}
+
+# Only images older than this age will be considered for removal. The age is
+# computed out of the creation date for the images. Human-readable strings can
+# be used to express the age.
+REGPRUNE_AGE=${REGPRUNE_AGE:-3mo}
+
+# This is the path to the remote registry, i.e. hub.docker.io or similar.
+REGPRUNE_REGISTRY=${REGPRUNE_REGISTRY:-}
+
+# This can contain a colon separated pair of a username and password for that
+# user. Note however that reg is able to read this information from your local
+# environment. When reg is used as a docker container, your local environment is
+# passed to the container so that reg can perform the same check.
+REGPRUNE_AUTH=${REGPRUNE_AUTH:-}
+
+# Set this to be able to authorise at registries that rely on a separate URL for
+# authentication. The Docker registry is one of those registries and requires
+# auth.docker.io for authentication to work properly.
+REGPRUNE_AUTH_URL=${REGPRUNE_AUTH_URL:-}
+
+# Specific path to the reg utility. When empty, the binary called reg will be
+# looked in the path and used if found, otherwise this script will default to
+# using a Docker container when interfacing with the remote registry.
+REGPRUNE_REG_BIN=${REGPRUNE_REG_BIN:-}
+
+# Specific path to the jq utility. When not found, an internal JSON parser will
+# be used. The parser is slow and sometimes buggy, but works in most cases.
+REGPRUNE_JQ=${REGPRUNE_JQ:-jq}
+
+# Specific opts to blindly pass to all calls to the reg utility. This can be
+# used to specify some of the global flags supported by reg.
+REGPRUNE_REG_OPTS=${REGPRUNE_REG_OPTS:-}
+
+# Docker image to use when reg is not available at the path. Note: dev. in flux,
+# pick your version carefully
+REGPRUNE_DOCKER_REG=${REGPRUNE_DOCKER_REG:-jess/reg:v0.16.0};
 
 # Print usage on stderr and exit
 usage() {
@@ -85,62 +124,64 @@ while [ $# -gt 0 ]; do
     -v | --verbose | --verbosity)
         YUSH_LOG_LEVEL="$2"; shift 2;;
     --verbose=* | --verbosity=*)
+        # shellcheck disable=SC2034 # This is declared in log.sh
         YUSH_LOG_LEVEL="${1#*=}"; shift 1;;
 
     -i | --image | --images)
-        IMAGES="$2"; shift 2;;
+        REGPRUNE_IMAGES="$2"; shift 2;;
     --image=* | --images=*)
-        IMAGES="${1#*=}"; shift 1;;
+        REGPRUNE_IMAGES="${1#*=}"; shift 1;;
 
     -t | --tag | --tags)
-        TAGS="$2"; shift 2;;
+        REGPRUNE_TAGS="$2"; shift 2;;
     --tag=* | --tags=*)
-        TAGS="${1#*=}"; shift 1;;
+        REGPRUNE_TAGS="${1#*=}"; shift 1;;
 
     -g | --age)
-        AGE="$2"; shift 2;;
+        REGPRUNE_AGE="$2"; shift 2;;
     --age=*)
-        AGE="${1#*=}"; shift 1;;
+        REGPRUNE_AGE="${1#*=}"; shift 1;;
 
     -n | --dryrun | --dry-run)
-        DRYRUN=1; shift 1;;
+        REGPRUNE_DRYRUN=1; shift 1;;
 
     -r | --reg | --registry)
-        REPO="$2"; shift 2;;
+        REGPRUNE_REGISTRY="$2"; shift 2;;
     --reg=* | --registry=*)
-        REPO="${1#*=}"; shift 1;;
+        REGPRUNE_REGISTRY="${1#*=}"; shift 1;;
 
     -a | --auth | --authorisation | --authorization)
-        AUTH="$2"; shift 2;;
+        REGPRUNE_AUTH="$2"; shift 2;;
     --auth=* | --authorisation=* | --authorization=*)
-        AUTH="${1#*=}"; shift 1;;
+        REGPRUNE_AUTH="${1#*=}"; shift 1;;
 
     --auth-file | --authorisation-file | --authorization-file)
-        AUTH=$(cat "$2"); shift 2;;
+        REGPRUNE_AUTH=$(cat "$2"); shift 2;;
     --auth-file=* | --authorisation-file=* | --authorization-file=*)
-        AUTH=$(cat "${1#*=}"); shift 1;;
+        REGPRUNE_AUTH=$(cat "${1#*=}"); shift 1;;
 
     --auth-url)
-        AUTH_URL=$(cat "$2"); shift 2;;
+        REGPRUNE_AUTH_URL=$(cat "$2"); shift 2;;
     --auth-url=*)
-        AUTH_URL=$(cat "${1#*=}"); shift 1;;
+        REGPRUNE_AUTH_URL=$(cat "${1#*=}"); shift 1;;
 
     --reg-bin | --regbin)
-        REG="$2"; shift 2;;
+        REGPRUNE_REG_BIN="$2"; shift 2;;
     --reg-bin=* | --regbin=*)
-        REG="${1#*=}"; shift 1;;
+        REGPRUNE_REG_BIN="${1#*=}"; shift 1;;
 
     --reg-opts | --regopts)
-        REG_OPTS="$2"; shift 2;;
+        REGPRUNE_REG_OPTS="$2"; shift 2;;
     --reg-opts=* | --regopts=*)
-        REG_OPTS="${1#*=}"; shift 1;;
+        REGPRUNE_REG_OPTS="${1#*=}"; shift 1;;
 
     --jq)
-        JQ="$2"; shift 2;;
+        REGPRUNE_JQ="$2"; shift 2;;
     --jq=*)
-        JQ="${1#*=}"; shift 1;;
+        REGPRUNE_JQ="${1#*=}"; shift 1;;
 
     --non-interactive | --no-colour | --no-color)
+        # shellcheck disable=SC2034 # This is declared in log.sh
         YUSH_LOG_COLOUR=0; shift 1;;
 
     -h | --help)
@@ -172,18 +213,18 @@ locate_keyword() {
 reg() {
 	cmd=$1; shift 1;
 
-	runreg="$REG $cmd"
-	[ -n "$AUTH_URL" ] && runreg="$runreg --auth-url $AUTH_URL"
+	runreg="$REGPRUNE_REG_BIN $cmd"
+	[ -n "$REGPRUNE_AUTH_URL" ] && runreg="$runreg --auth-url $REGPRUNE_AUTH_URL"
 	if [ -n "$USERNAME" ]; then
 		runreg="$runreg --username $USERNAME"
 		[ -n "$PASSWORD" ] && runreg="$runreg --password $PASSWORD"
 	fi
-	[ -n "$REG_OPTS" ] && runreg="$runreg $REG_OPTS"
+	[ -n "$REGPRUNE_REG_OPTS" ] && runreg="$runreg $REGPRUNE_REG_OPTS"
 	$runreg "$@"
 }
 
 rm_image() {
-    if [ "$DRYRUN" = "1" ]; then
+    if [ "$REGPRUNE_DRYRUN" = "1" ]; then
         if [ -z "$2" ]; then
             yush_info "Would remove image $(yush_yellow "$1")"
 		else
@@ -195,17 +236,17 @@ rm_image() {
         else
 			yush_notice "Removing image $(yush_red "$1"), $(yush_human_period "$2")old"
 		fi
-        reg rm "${REPO%/}/$1"
+        reg rm "${REGPRUNE_REGISTRY%/}/$1"
     fi
 }
 
-[ -z "$REPO" ] && usage "You must provide a registry through --reg(istry) option!"
+[ -z "$REGPRUNE_REGISTRY" ] && usage "You must provide a registry through --reg(istry) option!"
 
 # Convert period
-if echo "$AGE"|grep -Eq '[0-9]+[[:space:]]*[A-Za-z]+'; then
-    NEWAGE=$(yush_howlong "$AGE")
-    yush_info "Converted human-readable age $AGE to $NEWAGE seconds"
-    AGE=$NEWAGE
+if echo "$REGPRUNE_AGE"|grep -Eq '[0-9]+[[:space:]]*[A-Za-z]+'; then
+    NEWAGE=$(yush_howlong "$REGPRUNE_AGE")
+    yush_info "Converted human-readable age $REGPRUNE_AGE to $NEWAGE seconds"
+    REGPRUNE_AGE=$NEWAGE
 fi
 
 # Failover to a transient Docker container whenever the reg binary is not found
@@ -213,81 +254,91 @@ fi
 # the container so as to give a chance to the reg binary in the container to
 # find your credentials. This will not work in all settings and might not be
 # something that you want from a security standpoint.
-if [ -z "$REG" ]; then
+if [ -z "$REGPRUNE_REG_BIN" ]; then
 	if [ -x "$(command -v reg)" ]; then
-		REG=$(command -v reg)
+		REGPRUNE_REG_BIN=$(command -v reg)
         yush_debug "Using reg accessible as $reg for registry operations"
 	elif [ -x "$(which reg 2>/dev/null)" ]; then
-		REG=$(which reg)
+		REGPRUNE_REG_BIN=$(which reg)
         yush_debug "Using reg accessible as $reg for registry operations"
 	else
-		yush_debug "Will run reg as a Docker container using $DOCKER_REG"
-		REG="docker run -i --rm -v $HOME/.docker:/root/.docker:ro $DOCKER_REG"
+		yush_debug "Will run reg as a Docker container using $REGPRUNE_DOCKER_REG"
+		REGPRUNE_REG_BIN="docker run -i --rm -v $HOME/.docker:/root/.docker:ro $REGPRUNE_DOCKER_REG"
 	fi
 fi
 
-# When told to use jq, make sure we can access it or revert to setting JQ to an
+# When told to use jq, make sure we can access it or revert to setting REGPRUNE_JQ to an
 # empty string, which will use the internal JSON parser instead.
-if [ -n "$JQ" ]; then
-	if [ -x "$(command -v "$JQ")" ]; then
-		JQ=$(command -v "$JQ")
-	elif [ -x "$(which "$JQ" 2>/dev/null)" ]; then
-		JQ=$(which "$JQ")
+if [ -n "$REGPRUNE_JQ" ]; then
+	if [ -x "$(command -v "$REGPRUNE_JQ")" ]; then
+		REGPRUNE_JQ=$(command -v "$REGPRUNE_JQ")
+	elif [ -x "$(which "$REGPRUNE_JQ" 2>/dev/null)" ]; then
+		REGPRUNE_JQ=$(which "$REGPRUNE_JQ")
     else
-        yush_notice "Cannot find jq at $JQ, reverting to internal JSON parser"
-        JQ=
+        yush_notice "Cannot find jq at $REGPRUNE_JQ, reverting to internal JSON parser"
+        REGPRUNE_JQ=
     fi
 fi
 
 # Output some info over JSON parsing and jq as decision is automated (and might
 # be wrong?)
-if [ -z "$JQ" ]; then
+if [ -z "$REGPRUNE_JQ" ]; then
     yush_debug "Using slow, shell-based and imprecise JSON parser"
 else
-    yush_debug "Using jq accessible as $JQ for JSON parsing"
+    yush_debug "Using jq accessible as $REGPRUNE_JQ for JSON parsing"
 fi
 
 # Initialise globals used below or in called functions
 now=$(date -u +'%s');    # Will do with once and not everytime!
-USERNAME=$(echo "$AUTH" | cut -d':' -f1)
-PASSWORD=$(echo "$AUTH" | cut -d':' -f2)
+USERNAME=$(echo "$REGPRUNE_AUTH" | cut -d':' -f1)
+PASSWORD=$(echo "$REGPRUNE_AUTH" | cut -d':' -f2)
 
 # Get the inventory, locate the real header line and guess where the name of the
 # image will end. Starting from that line, cut away anything else than the name
 # of the image at the beginning and only keep the ones that match the official
 # regexp for image names.
-yush_debug "Listing all images and tags at $REPO"
-inventory=$(reg ls "$REPO")
+yush_debug "Listing all images and tags at $REGPRUNE_REGISTRY"
+inventory=$(reg ls "$REGPRUNE_REGISTRY")
 header=$(printf "%s" "$inventory" | grep -E "REPO\s+TAGS")
 tags_col=$(locate_keyword "$header" "TAGS")
 start=$(printf "%s" "$inventory" | grep -En "REPO\s+TAGS" | cut -d':' -f1)
-for name in $(printf "%s" "$inventory" | tail -n +$((start+1)) | cut -c1-$((tags_col-1)) | sed -E 's/\s+$//g' | grep -Eo '^([a-z0-9]+([._]|__|[-]|[a-z0-9])*(\/[a-z0-9]+([._]|__|[-]|[a-z0-9])*)*)'); do
-    if [ -n "$IMAGES" ] && echo "$name" | grep -Eqo "$IMAGES"; then
+for name in $(printf "%s" "$inventory" |
+                tail -n +$((start+1)) |
+                cut -c1-$((tags_col-1)) |
+                sed -E 's/\s+$//g' |
+                grep -Eo '^([a-z0-9]+([._]|__|[-]|[a-z0-9])*(\/[a-z0-9]+([._]|__|[-]|[a-z0-9])*)*)'); do
+    if [ -n "$REGPRUNE_IMAGES" ] && echo "$name" | grep -Eqo "$REGPRUNE_IMAGES"; then
         yush_debug "Selecting among tags of image $name"
-        for tag in $(reg tags "${REPO%/}/${name}"); do
-            if [ -n "$TAGS" ] && echo "$tag" | grep -Eqo "$TAGS"; then
-                if [ -n "$AGE" ]; then
+        for tag in $(reg tags "${REGPRUNE_REGISTRY%/}/${name}"); do
+            if [ -n "$REGPRUNE_TAGS" ] && echo "$tag" | grep -Eqo "$REGPRUNE_TAGS"; then
+                if [ -n "$REGPRUNE_AGE" ]; then
                     yush_debug "Checking age of ${name}:${tag}"
                     # Get the sha256 of the config layer, which is a JSON file
-                    if [ -n "$JQ" ]; then
-                        config=$(reg manifest "${REPO%/}/${name}:${tag}" | "$JQ" -crM .config.digest)
+                    if [ -n "$REGPRUNE_JQ" ]; then
+                        config=$(   reg manifest "${REGPRUNE_REGISTRY%/}/${name}:${tag}" |
+                                    "$REGPRUNE_JQ" -crM .config.digest)
                     else
-                        config=$(reg manifest "${REPO%/}/${name}:${tag}" | yush_json | grep '/config/digest' | awk '{print $3}')
+                        config=$(   reg manifest "${REGPRUNE_REGISTRY%/}/${name}:${tag}" |
+                                    yush_json |
+                                    grep '/config/digest' | awk '{print $3}')
                     fi
 					if [ -z "$config" ]; then
-						yush_warn "Cannot find config layer for ${REPO%/}/${name}:${tag}!"
+						yush_warn "Cannot find config layer for ${REGPRUNE_REGISTRY%/}/${name}:${tag}!"
 					else
 						# Extract the layer, parse its JSON and look for the image creation date, in ISO8601 format
-                        if [ -n "$JQ" ]; then
-    						creation=$(reg layer "${REPO%/}/${name}:${tag}@${config}" | "$JQ" -crM .created)
+                        if [ -n "$REGPRUNE_JQ" ]; then
+    						creation=$( reg layer "${REGPRUNE_REGISTRY%/}/${name}:${tag}@${config}" |
+                                        "$REGPRUNE_JQ" -crM .created)
                         else
-    						creation=$(reg layer "${REPO%/}/${name}:${tag}@${config}" | yush_json | grep -E '^/created\s+' | awk '{print $3}')
+    						creation=$( reg layer "${REGPRUNE_REGISTRY%/}/${name}:${tag}@${config}" |
+                                        yush_json |
+                                        grep -E '^/created\s+' | awk '{print $3}')
                         fi
 						if [ -z "$creation" ]; then
-							yush_warn "Cannot find creation date for ${REPO%/}/${name}:${tag}!"
+							yush_warn "Cannot find creation date for ${REGPRUNE_REGISTRY%/}/${name}:${tag}!"
 						else
 							howold=$((now-$(yush_iso8601 "$creation")))
-							if [ "$howold" -lt "$AGE" ]; then
+							if [ "$howold" -lt "$REGPRUNE_AGE" ]; then
 								yush_info "Keeping $(yush_green "${name}:${tag}"), $(yush_human_period "$howold")old"
 							else
 								rm_image "${name}:${tag}" "$howold"
@@ -298,11 +349,11 @@ for name in $(printf "%s" "$inventory" | tail -n +$((start+1)) | cut -c1-$((tags
                     rm_image "${name}:${tag}"
                 fi
             else
-                yush_info "Skipping ${name}:${tag}, tag does not match $TAGS"
+                yush_info "Skipping ${name}:${tag}, tag does not match $REGPRUNE_TAGS"
             fi
         done
     else
-        yush_info "Skipping $name, name does not match $IMAGES"
+        yush_info "Skipping $name, name does not match $REGPRUNE_IMAGES"
     fi
 done
 

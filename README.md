@@ -143,6 +143,17 @@ Forces no colouring in log output. When this is not specified, colouring is
 automatically turned on whenver the script detects that it is run in interactive
 mode.
 
+## Environment Variables
+
+The behaviour of this script can also be controlled through environment
+variables. Command-line [options](#command-line-options) always have precedence
+over the value of environment variables. The script recognises environment
+variables starting with the prefix `REGPRUNE_`. The rest of the variable name is
+formed using the name of the matching long option, where dashes have been
+replaced by underscores. So, for example, to specify the URL of the remote
+registry to operate against, you could set the environment variable
+`REGPRUNE_REGISTRY` instead of using the command-line option `--registry`.
+
 ## Docker
 
 This utility also comes as a Docker [image][reg-prune] so that it can run from a
