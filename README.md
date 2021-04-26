@@ -88,12 +88,26 @@ A regular expression to match against the tags of the images selected by the
 remote repository will be selected for removal. This defaults to `.*`, thus will
 select all tags for the selected images.
 
+### `-e`, `--exclude`, `--exclude-tag` or `--exclude-tags`
+
+A regular expression for a subset of the selected `--tags` to be excluded from
+the ones taken into consideration. The default is an empty string, meaning that
+no out of the selected set of tags will be removed.
+
 ### `-g` or `--age`
 
 Age of the selected images to consider for removal (default: `3mo`). The age can
 be expressed in human-readable format, e.g. `6m` (for 6 months), `3 days`, etc.
 or as an integer number of seconds. An empty age is understood as all images
 under the relevant tags, however old they are.
+
+### `-l` or `--latest`
+
+Integer amount of images to keep among the ones matching the tags selected by
+the combination of the `--tags` and `--excluded` options, and ordered by
+creation date. For this parameter to be considered, the `--age` needs to be an
+empty string. As removal is per set of matching tags for a given image, this
+might remove a lot of images.
 
 ### `-r`, `--registry` or `--reg`
 
