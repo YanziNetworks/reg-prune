@@ -25,10 +25,22 @@ REGPRUNE_IMAGES=${REGPRUNE_IMAGES:-}
 # for deletion. The default is to match all possible tags!
 REGPRUNE_TAGS=${REGPRUNE_TAGS:-".*"}
 
+# A regular expression to exclude tags from the ones that would otherwise have
+# been considered. The default is an empty string, meaning none of the selected
+# tags will be excluded.
+REGPRUNE_EXCLUDE=${REGPRUNE_EXCLUDE:-}
+
 # Only images older than this age will be considered for removal. The age is
 # computed out of the creation date for the images. Human-readable strings can
 # be used to express the age.
 REGPRUNE_AGE=${REGPRUNE_AGE:-3mo}
+
+# Will only keep this number of latest images matching the tags. Image counting
+# will happen per image, not per tag, so this might remove a whole lot more than
+# what you think it would! The age needs to be an empty string for this
+# parameter to be taken into account and this variable needs to be a positive
+# integer.
+REGPRUNE_LATEST=${REGPRUNE_LATEST:-1}
 
 # This is the path to the remote registry, i.e. hub.docker.io or similar.
 REGPRUNE_REGISTRY=${REGPRUNE_REGISTRY:-}
@@ -84,8 +96,12 @@ Usage:
                         to none)
     -t | --tag(s)       Regular expression to select tag names to delete (defaults
                         to all, i.e. .*)
+    -e | --exclude      Regular expression to exclude some of the tags selected
+                        with the option above. Default to empty, no exclusion.
     -g | --age          Age of images to delete, in seconds. Can be expressed in
                         human-readable format. Default to 3mo, i.e. 3 months.
+    -l | --latest       Keep this many images instead, among the youngest. This
+                        only works when age is turned off (empty string).
     -r | --reg(istry)   URL to remote registry.
     -a | --auth         Colon separated username and password to authorise at
                         remote registry.
@@ -137,10 +153,20 @@ while [ $# -gt 0 ]; do
     --tag=* | --tags=*)
         REGPRUNE_TAGS="${1#*=}"; shift 1;;
 
+    -e | --exclude | --exclude-tag | --exclude-tags)
+        REGPRUNE_EXCLUDE="$2"; shift 2;;
+    --exclude=* | --exclude-tag=* | --exclude-tags=*)
+        REGPRUNE_EXCLUDE="${1#*=}"; shift 1;;
+
     -g | --age)
         REGPRUNE_AGE="$2"; shift 2;;
     --age=*)
         REGPRUNE_AGE="${1#*=}"; shift 1;;
+
+    -l | --latest)
+        REGPRUNE_LATEST="$2"; shift 2;;
+    --latest=*)
+        REGPRUNE_LATEST="${1#*=}"; shift 1;;
 
     -n | --dryrun | --dry-run)
         REGPRUNE_DRYRUN=1; shift 1;;
@@ -240,6 +266,34 @@ rm_image() {
     fi
 }
 
+creation_date() {
+    yush_debug "Checking age of ${name}:${tag}"
+    # Get the sha256 of the config layer, which is a JSON file
+    if [ -n "$REGPRUNE_JQ" ]; then
+        config=$(   reg manifest "$1" |
+                    "$REGPRUNE_JQ" -crM .config.digest)
+    else
+        config=$(   reg manifest "$1" |
+                    yush_json |
+                    grep '/config/digest' | awk '{print $3}')
+    fi
+    if [ -z "$config" ]; then
+        yush_warn "Cannot find config layer for $1!"
+    else
+        # Extract the layer, parse its JSON and look for the image creation date, in ISO8601 format
+        if [ -n "$REGPRUNE_JQ" ]; then
+            creation=$( reg layer "$1@${config}" |
+                        "$REGPRUNE_JQ" -crM .created)
+        else
+            creation=$( reg layer "$1@${config}" |
+                        yush_json |
+                        grep -E '^/created\s+' | awk '{print $3}')
+        fi
+        printf %s\\n "$creation"
+    fi
+}
+
+
 [ -z "$REGPRUNE_REGISTRY" ] && usage "You must provide a registry through --reg(istry) option!"
 
 # Convert period
@@ -307,51 +361,64 @@ for name in $(printf "%s" "$inventory" |
                 cut -c1-$((tags_col-1)) |
                 sed -E 's/\s+$//g' |
                 grep -Eo '^([a-z0-9]+([._]|__|[-]|[a-z0-9])*(\/[a-z0-9]+([._]|__|[-]|[a-z0-9])*)*)'); do
-    if [ -n "$REGPRUNE_IMAGES" ] && echo "$name" | grep -Eqo "$REGPRUNE_IMAGES"; then
+    if [ -n "$REGPRUNE_IMAGES" ] && printf %s\\n "$name" | grep -Eqo "$REGPRUNE_IMAGES"; then
         yush_debug "Selecting among tags of image $name"
+        # Create a temporary file to host the list of relevant images, together
+        # with the creation date.
+        by_dates=
+        if [ -z "$REGPRUNE_AGE" ] && [ -n "$REGPRUNE_LATEST" ] && [ "$REGPRUNE_LATEST" -gt "0" ]; then
+            by_dates=$(mktemp)
+        fi
         for tag in $(reg tags "${REGPRUNE_REGISTRY%/}/${name}"); do
-            if [ -n "$REGPRUNE_TAGS" ] && echo "$tag" | grep -Eqo "$REGPRUNE_TAGS"; then
-                if [ -n "$REGPRUNE_AGE" ]; then
-                    yush_debug "Checking age of ${name}:${tag}"
-                    # Get the sha256 of the config layer, which is a JSON file
-                    if [ -n "$REGPRUNE_JQ" ]; then
-                        config=$(   reg manifest "${REGPRUNE_REGISTRY%/}/${name}:${tag}" |
-                                    "$REGPRUNE_JQ" -crM .config.digest)
-                    else
-                        config=$(   reg manifest "${REGPRUNE_REGISTRY%/}/${name}:${tag}" |
-                                    yush_json |
-                                    grep '/config/digest' | awk '{print $3}')
-                    fi
-					if [ -z "$config" ]; then
-						yush_warn "Cannot find config layer for ${REGPRUNE_REGISTRY%/}/${name}:${tag}!"
-					else
-						# Extract the layer, parse its JSON and look for the image creation date, in ISO8601 format
-                        if [ -n "$REGPRUNE_JQ" ]; then
-    						creation=$( reg layer "${REGPRUNE_REGISTRY%/}/${name}:${tag}@${config}" |
-                                        "$REGPRUNE_JQ" -crM .created)
-                        else
-    						creation=$( reg layer "${REGPRUNE_REGISTRY%/}/${name}:${tag}@${config}" |
-                                        yush_json |
-                                        grep -E '^/created\s+' | awk '{print $3}')
-                        fi
-						if [ -z "$creation" ]; then
-							yush_warn "Cannot find creation date for ${REGPRUNE_REGISTRY%/}/${name}:${tag}!"
-						else
-							howold=$((now-$(yush_iso8601 "$creation")))
-							if [ "$howold" -lt "$REGPRUNE_AGE" ]; then
-								yush_info "Keeping $(yush_green "${name}:${tag}"), $(yush_human_period "$howold")old"
-							else
-								rm_image "${name}:${tag}" "$howold"
-							fi
-						fi
-					fi
+            if [ -n "$REGPRUNE_TAGS" ] && printf %s\\n "$tag" | grep -Eqo "$REGPRUNE_TAGS"; then
+                if [ -n "$REGPRUNE_EXCLUDE" ] && printf %s\\n "$tag" | grep -Eqo "$REGPRUNE_EXCLUDE"; then
+                    yush_info "Skipping ${name}:${tag}, tag excluded by $REGPRUNE_EXCLUDE"
                 else
-                    rm_image "${name}:${tag}"
+                    # When deletion should happen by age, compute the age of the
+                    # image and remove it if relevant.
+                    if [ -n "$REGPRUNE_AGE" ]; then
+                        creation=$(creation_date "${REGPRUNE_REGISTRY%/}/${name}:${tag}")
+                        if [ -z "$creation" ]; then
+                            yush_warn "Cannot find creation date for ${REGPRUNE_REGISTRY%/}/${name}:${tag}!"
+                        else
+                            howold=$((now-$(yush_iso8601 "$creation")))
+                            if [ "$howold" -lt "$REGPRUNE_AGE" ]; then
+                                yush_info "Keeping $(yush_green "${name}:${tag}"), $(yush_human_period "$howold")old"
+                            else
+                                rm_image "${name}:${tag}" "$howold"
+                            fi
+                        fi
+                    elif [ -n "$REGPRUNE_LATEST" ] && [ "$REGPRUNE_LATEST" -gt "0" ]; then
+                        # When deletion should instead happen by count, push
+                        # the name of the image and tag, together with the
+                        # creation date to the temporary file created for that
+                        # purpose.
+                        creation=$(creation_date "${REGPRUNE_REGISTRY%/}/${name}:${tag}")
+                        if [ -z "$creation" ]; then
+                            yush_warn "Cannot find creation date for ${REGPRUNE_REGISTRY%/}/${name}:${tag}!"
+                        else
+                            printf "%d\t%s\n" "$((now-$(yush_iso8601 "$creation")))" "${REGPRUNE_REGISTRY%/}/${name}:${tag}" >> "$by_dates"
+                        fi
+                    else
+                        # When no age, nor count selection should happen, just
+                        # delete the image at once (scary, uh?!).
+                        rm_image "${name}:${tag}"
+                    fi
                 fi
             else
                 yush_info "Skipping ${name}:${tag}, tag does not match $REGPRUNE_TAGS"
             fi
         done
+        # If we have a temporary file with possible images and their creation
+        # dates, sort by creation date, oldest first (this is because the date
+        # is ISO8601 format), then remove all but the REGPRUNE_LATEST at the
+        # tail of the file.
+        if [ -n "$by_dates" ] && [ -f "$by_dates" ]; then
+            sort -n -r -k 1 "$by_dates" | head -n -"$REGPRUNE_LATEST" | while IFS=$(printf \\t\\n) read -r howold image; do
+                rm_image "$image" "$howold"
+            done
+            rm -f "$by_dates";  # Remove the file, we are done for this image.
+        fi
     else
         yush_info "Skipping $name, name does not match $REGPRUNE_IMAGES"
     fi
